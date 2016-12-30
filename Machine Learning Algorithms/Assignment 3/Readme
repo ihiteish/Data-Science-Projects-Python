@@ -1,0 +1,23 @@
+==========
+README
+==========
+
+The code is written in python 3.5.2.
+
+The report is in main.pdf.
+
+There are two folders :
+
+code : Contains Professor White's Code.It acts as an interface to my algorithms Also, Ridge regression is implemented inside regressionalgorithms.py.
+
+Solutions: Contains my solutions to the question. The file name is in the format of 
+
+solve_<question part>_<algorithm>.py. Each of these file should be run independently and each script will give you answer to the corresponding question. 
+
+Please check Solutions/import_files.py for any import error.
+
+Note: Make sure that code and solutions be in same folder as my solutions are dependend on professor's code.
+
+If you face any problems please email me at panwekar@iu.edu.
+
+Thanks!

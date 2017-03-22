@@ -1,0 +1,270 @@
+---
+title: "Decision Tree"
+author: "Prerit Anwekar"
+date: "February 25, 2016"
+output: pdf_document
+---
+
+```{r echo=FALSE, warning=FALSE}
+library(data.table)
+library(caret)
+library(klaR)
+
+#This function is used to divide the dataset into parts,
+#depending on the column Number and column Value.
+
+divideset<- function(dataset, columnNumber, columnValue){
+  set1<-data.frame()
+  set2<-data.frame()
+  for(rowIndex in 1:nrow(dataset)){
+    if(dataset[rowIndex,columnNumber] >= columnValue){
+      set1<- rbind(set1,dataset[rowIndex,])
+    }else{
+      set2<-rbind(set2,dataset[rowIndex,])
+    }
+  }
+  list.dataframe<-list(set1,set2)
+  return(list.dataframe)
+}
+
+# This function finds the counts of the result set.
+findNumberOfResults<-function(dataset){
+  if(length(dataset)==0||is.null(ncol(dataset))){
+    return(0)
+  }
+  temp.df<-as.data.frame(table(dataset[,ncol(dataset)]))
+  
+  last_col <- temp.df$Var1
+  Count <- temp.df$Freq
+  counts<-data.frame(last_col,Count)
+  return(counts)
+}
+
+#This funciton finds the entropy of the dataset.
+entropy<-function(dataset){
+  results<-findNumberOfResults(dataset)
+  entropy = 0
+  for(i in 1:nrow(results)){
+    if(results[i,2]==0){
+      return(0)
+    }
+    p = results[i,2]/nrow(dataset)
+    
+    entropy <- entropy - p*log2(p)
+  }
+  return(entropy)
+}
+
+#This function finds the Gini Impurity of the dataset.
+giniImpurity<-function(dataset){
+  total <- nrow(dataset)
+  counts<-findNumberOfResults(dataset)
+  imp = 0
+  if(counts[1]==0){
+    return(0)
+  }
+  species = counts[1]$last_col
+  otherspecies = counts[1]$last_col
+  for(s in species){
+    prob1 = counts[species == s,2]/total
+    for(othrSpe in otherspecies){
+      if (othrSpe == s){
+        next
+      }
+      prob2 = counts[otherspecies == othrSpe,2]/total
+      imp = imp + (prob1 * prob2)
+    }
+  }
+  return(imp)
+}
+
+
+
+#This is the core of the decision tree building, it takes in 
+#dataset and a measure which acts as a stopping criteria.
+
+buildTree<-function(dataset,measure){
+  if(length(dataset)== 0){
+    return(list(col=-1,value=NULL,results=NULL,tb=NULL,fb=NULL))
+  }
+  if(measure == "gini"){
+    curr_score = giniImpurity(dataset)
+  }else{
+    curr_score = entropy(dataset)
+  }
+  
+  best_gain = 0
+  best_criteria = NULL
+  best_sets = NULL
+  
+  column_count = ncol(dataset)-1
+  if(length(column_count)==0){
+    return(0)
+  }
+  for(col in 1:column_count){
+    column_values = c()
+    for(row in 1:nrow(dataset)){
+      column_values<-c(column_values,dataset[row,col])
+    }
+    for(value in column_values){
+      sets<-list()
+      sets<-divideset(dataset,col,value)
+      set1 = sets[[1]]
+      set2 = sets[[2]]
+      p = nrow(set1)/nrow(dataset)
+      if(measure == "gini"){
+        gain = curr_score - p * giniImpurity(set1)- (1-p) * giniImpurity(set2)
+      }else{
+        if(length(set2) == 0){
+          gain = 0
+        }else{
+          gain = curr_score - p * entropy(set1)- (1-p) * entropy(set2)
+        }
+      }
+      if(gain>best_gain && nrow(set1)>0 && nrow(set2)>0){
+        best_gain = gain
+        best_criteria = value
+        best_col = col
+        best_sets = list(set1,set2)
+        }
+      }
+  }
+ if(best_gain>0){
+   tb = buildTree(best_sets[[1]],measure)
+   fb = buildTree(best_sets[[2]],measure)
+   return(list(col = colnames(dataset)[best_col],value = best_criteria,tb = tb,fb=fb))#
+ } else{
+   return(list(results = findNumberOfResults(dataset)))
+ }
+}
+
+
+##This funciton takes in a tree model and prints it on the console.
+
+print_tree<-function(tree,indent=""){
+  if(!is.null(tree$results)){
+    cat(paste(indent,indent))
+    for(index in 1:nrow(tree$results)){
+      cat(paste("(",(tree$results)[index,1],",",(tree$results)[index,2],")"))
+    }
+    cat("\n")
+  }else{
+    value <- tree$col
+    cat(paste(value,"\n"))
+    cat(paste(indent,"Yes->","\n"))
+    print_tree(tree$tb,paste(indent," "))
+    cat(paste(indent,"No->","\n"))
+    print_tree(tree$fb,paste(indent," "))
+  }
+}  
+
+
+
+#This funciton takes in a dataset and a model using which classification of the 
+#data taakes place.
+
+classify<-function(dataset,tree){
+  if(!is.null(tree$results)){
+    return(tree$results)
+  }else{
+  value <- tree$col
+  branch = list()
+  if(dataset[value]>=tree$value){
+    branch = tree$tb
+  }else{
+    branch = tree$fb
+  }
+  return(classify(dataset,branch))
+  }
+}
+
+
+#This is fuction performs the K-fold cross validation on the dataset.
+
+kfcv<-function(dataset,k,measure){
+dataset$id <- sample(1:k, nrow(dataset), replace = TRUE)
+list <- 1:k
+
+for (j in 1:k){
+  cat(paste("====================","#fold ",j,"\n"))
+  dataset_train <- subset(dataset, id %in% list[-j])
+  dataset_test<- subset(dataset, id %in% c(j))
+  model <- buildTree(dataset_train[,-ncol(dataset)],measure)
+  # make predictions
+  x_test <- dataset_test[,-ncol(dataset)]
+  y_test <- dataset_test[,ncol(dataset)-1]
+  predictions<-data.frame()
+  for(i in 1:nrow(x_test)){
+    classification<-classify(x_test[i,],model)
+    class_value<-classification[classification$Count == max(classification$Count),]
+    predictions <- rbind(predictions,class_value)
+  }
+
+  print(confusionMatrix(predictions$last_col, y_test))
+
+}
+cat("One of the decision tree made during the process")
+cat(paste("Decision Tree: ","\n"))
+  print_tree(model)
+}
+
+```
+\textbf{Dataset 1:Iris, using Gini}
+```{r echo=FALSE, warning=FALSE}
+kfcv(iris,10,"gini")
+
+```
+\textbf{Dataset 1:Iris, using Entropy}
+```{r echo=FALSE, warning=FALSE}
+kfcv(iris,10,"entropy")
+
+```
+\textbf{Dataset 2:Wine, using Gini}
+```{r echo=FALSE, warning=FALSE}
+wine.data<-
+  read.csv("G:\\Classes\\SP16\\Data Mining\\Homework\\Homework 2\\Answers\\Question 4\\wine.data.txt",
+           header = FALSE)
+attributeNames<-c("type","Alcohol",
+"Malic acid",
+ "Ash",
+ "Alcalinity of ash",  
+ "Magnesium",
+ "Total phenols",
+ "Flavanoids",
+ "Nonflavanoid phenols",
+ "Proanthocyanins",
+"Color intensity",
+"Hue",
+"OD280/OD315 of diluted wines",
+"Proline")
+
+colnames(wine.data)<-attributeNames
+wine.data$type = wine.data[,1]
+
+
+kfcv(wine.data[,c(2:ncol(wine.data),1)],10,"gini")
+
+```
+\textbf{Dataset 2:Wine, using Entropy}
+```{r echo=FALSE, warning=FALSE}
+
+kfcv(wine.data[,c(2:ncol(wine.data),1)],10,"entropy")
+
+```
+\textbf{Dataset 3: seed, using Gini}
+```{r}
+seed.data<- read.csv("G:\\Classes\\SP16\\Data Mining\\Homework\\Homework 2\\Answers\\Question 4\\seeds_dataset.txt", sep = "\t")
+colnames(seed.data)<-c("area", 
+"perimeter", 
+"compactness", 
+"length of kernel", 
+"width of kernel", 
+"asymmetry coefficient", 
+"length of kernel groove","Type")
+
+kfcv(seed.data[complete.cases(seed.data),],10,"gini")
+```
+\textbf{Dataset 3: seed, using Entropy}
+```{r}
+kfcv(seed.data[complete.cases(seed.data),],10,"entropy")
+```
